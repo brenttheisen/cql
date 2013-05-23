@@ -1,4 +1,5 @@
 bin_PROGRAMS = cql
 cql_SOURCES = main.c
-cql_CFLAGS = $(AM_CFLAGS)
+cql_CFLAGS = $(AM_CFLAGS) $(DEPS_CFLAGS)
+cql_LDADD = $(DEPS_LIBS)
 

@@ -5,5 +5,6 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 AC_PROG_CC
 AM_PROG_CC_C_O
+PKG_CHECK_MODULES([DEPS], [libcqlclient-0.0 >= 0.0.0])
 AC_CONFIG_FILES([Makefile src/Makefile])
 AC_OUTPUT
