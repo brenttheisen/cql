@@ -19,3 +19,4 @@ src/config.h.in~
 src/cql
 src/cql-main.o
 src/stamp-h1
+src/.deps
