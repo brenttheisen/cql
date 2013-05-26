@@ -3,9 +3,25 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <regex.h>
 #include "cql.h"
+#include "config.h"
 
-char *DEFAULT_HOST = "localhost:9042";
+#ifdef HAVE_EDIT_READLINE_READLINE_H
+#  include <edit/readline/readline.h>
+#elif HAVE_READLINE_READLINE_H
+#  include <readline/readline.h>
+#  ifdef HAVE_READLINE_HISTORY_H
+#    include <readline/history.h>
+#  endif
+#else
+#  include <editline/readline.h>
+#endif
+
+#define COMMAND_NONE 0x0000
+#define COMMAND_EXIT 0x0001
+
+const char *DEFAULT_HOST = "localhost:9042";
 
 typedef struct {
 	char **hosts;
@@ -23,6 +39,8 @@ char * format_column_value(cql_column_value *column_value, cql_column *column);
 
 cql_cluster *cluster;
 cql_session *session;
+
+char *keyspace = NULL;
 
 
 int main(int argc, char *argv[]) {
@@ -151,8 +169,106 @@ void execute_file(int fd) {
 	}
 }
 
+regex_t* compile_regex(char *regex_str, int cflags) {
+	regex_t *regex = malloc(sizeof(regex_t));
+	int reti = regcomp(regex, regex_str, cflags);
+	if(reti) {
+		char error_msg[512];
+		regerror(reti, regex, error_msg, 512);
+		fprintf(stderr, "Could not compile regex \"%s\": %s\n", regex_str, error_msg);
+		exit(EXIT_FAILURE);
+	}
+
+	return regex;
+}
+
+int empty_line(char *line) {
+	if(line == NULL)
+		return 1;
+
+	static regex_t *regex = NULL;
+	if(!regex)
+		regex = compile_regex("^\\s*$", 0);
+
+	return !regexec(regex, line, 0, NULL, 0);
+}
+
+int line_command(char *line) {
+	static regex_t *exit_regex = NULL;
+	if(!exit_regex)
+		exit_regex = compile_regex("^[ \\t]*(exit|quit)[ \\t]*(;)[ \\t]*$", REG_EXTENDED);
+
+	if(!regexec(exit_regex, line, 0, NULL, 0))
+		return COMMAND_EXIT;
+
+	return COMMAND_NONE;
+}
+
+char* prompt() {
+	const char *PROMPT_WITHOUT_KEYSPACE = "cql> ";
+	const char *PROMPT_WITH_KEYSPACE = "cql:%s> ";
+	static char *prompt = NULL;
+	static char *last_keyspace = NULL;
+
+	if(prompt && last_keyspace == keyspace && (last_keyspace && keyspace && !strcmp(last_keyspace, keyspace)))
+		return prompt;
+	
+	if(prompt && prompt != PROMPT_WITHOUT_KEYSPACE && prompt != PROMPT_WITH_KEYSPACE)
+		free(prompt);
+
+	if(keyspace) {
+		int len = snprintf(NULL, 0, PROMPT_WITH_KEYSPACE, keyspace);
+		prompt = malloc(len + 1);
+		snprintf(prompt, len + 1, PROMPT_WITH_KEYSPACE, keyspace);
+	} else {
+		prompt = PROMPT_WITHOUT_KEYSPACE;
+	}
+
+	last_keyspace = keyspace;
+	return prompt;
+}
+
 void display_prompt() {
-	printf("Prompt isn't implemented yet. Try redirecting CQL statements to stdin.");
+	char *carry_over = NULL;
+	for(;;) {
+		char *line = readline(prompt());
+		if(empty_line(line))
+			continue;
+
+		int command = line_command(line);
+		switch(command) {
+		case COMMAND_EXIT:
+			exit(EXIT_SUCCESS);
+		}
+
+		int len = strlen(line) + 1;
+		if(carry_over)
+			len += strlen(carry_over);
+		char *str = malloc(len), *offset = str;
+		if(carry_over) {
+			strcpy(str, carry_over);
+			offset += strlen(str);
+		}
+		strcpy(offset, line);
+		if(carry_over) {
+			free(carry_over);
+			carry_over = NULL;
+		}
+
+		int end_of_statement = strstr(line, ";");
+		if(end_of_statement) {
+			add_history(str);
+			execute_query(str);
+		} else {
+			int carry_over_len = strlen(str) + 2;
+			carry_over = malloc(carry_over_len);
+			strcpy(carry_over, str);
+			strcpy(carry_over + carry_over_len - 2, " ");
+		}
+
+		free(str);
+		free(line);
+	}
 }
 
 void execute_query(char *query) {
@@ -181,6 +297,10 @@ void execute_query(char *query) {
 				break;
 			case CQL_RESULT_KIND_SET_KEYSPACE:
 				printf("Set keyspace to %s", (char*) res->data);
+				if(keyspace)
+					free(keyspace);
+				keyspace = malloc(strlen(res->data) + 1);
+				strcpy(keyspace, res->data);
 				break;
 			case CQL_RESULT_KIND_SCHEMA_CHANGE:
 				{
