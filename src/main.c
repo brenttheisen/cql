@@ -336,7 +336,7 @@ void execute_query(char *query) {
 }
 
 void print_rows_result(cql_rows_result *rows_result) {
-	cql_rows_metadata *metadata = rows_result->metadata;
+	cql_metadata *metadata = rows_result->metadata;
 	int column_index;
 	char *header_column_names[metadata->columns_count];
 	int column_max_chars[metadata->columns_count];
