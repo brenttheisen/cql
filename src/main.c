@@ -323,7 +323,7 @@ void execute_query(char *query) {
 	case CQL_RESULT_CLIENT_ERROR:
 		{
 			cql_client_error *error = (cql_client_error*) result;
-			printf("Client error: %s", error->message);
+			fprintf(stderr, "Client error: %s", error->message);
 			cql_client_error_destroy(error);
 		}
 		break;
